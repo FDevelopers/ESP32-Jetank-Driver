@@ -1,4 +1,9 @@
 #include "main.h"
+#include <ArduinoOTA.h>
+#include <ESPmDNS.h>
+
+TaskHandle_t taskHandleIMU = NULL;
+TaskHandle_t taskHandleLidar = NULL;
 
 HardwareSerial LIDARSerial(1);
 RPLidar lidar;
@@ -9,6 +14,7 @@ TcpClient tcpClient;
 
 void connectToWiFi()
 {
+    WiFi.config(IPAddress(10, 0, 0, 68), IPAddress(255, 255, 255, 0), IPAddress(10, 0, 0, 1), IPAddress(8, 8, 8, 8));
     WiFi.begin(ssid, password);
     Serial.print("Conectando a WiFi");
     while (WiFi.status() != WL_CONNECTED)
@@ -16,7 +22,7 @@ void connectToWiFi()
         delay(500);
         Serial.print(".");
     }
-    Serial.println("✅ WiFi conectado");
+    Serial.printf("✅ WiFi conectado a %s\n", WiFi.localIP().toString().c_str());
 }
 
 void TaskIMU(void *pvParameters)
@@ -25,6 +31,17 @@ void TaskIMU(void *pvParameters)
     TickType_t xLastWakeTime = xTaskGetTickCount();
     const TickType_t xFrequency = pdMS_TO_TICKS(50); // 20Hz
     uint8_t ledState = LOW;
+
+    lidar.begin(LIDARSerial);
+    if (IMU.begin() < 0)
+    {
+        Serial.println("❌ IMU no se pudo inicializar");
+        vTaskDelete(NULL);
+    }
+
+    IMU.setAccelRange(MPU9250::ACCEL_RANGE_2G);
+    IMU.setGyroRange(MPU9250::GYRO_RANGE_250DPS);
+    IMU.setDlpfBandwidth(MPU9250::DLPF_BANDWIDTH_20HZ);
 
     while (true)
     {
@@ -97,38 +114,26 @@ void setup()
     Serial.begin(115200);
     LIDARSerial.begin(115200, SERIAL_8N1, 16, 17);
 
-    plataforma.stopWheels();
-    plataforma.onEncodersValues = encodersCallback;
-
-    lidar.begin(LIDARSerial);
-
-    if (IMU.begin() < 0)
-    {
-        Serial.println("❌ IMU no se pudo inicializar");
-        while (1)
-            ;
-    }
-
-    tcpClient.onMotorCommand = [](uint8_t cmd) { WheelCommand(cmd); };
-    tcpClient.onIMUCommand = [](uint8_t cmd) { calibrateIMU(cmd); };
-
     pinMode(RPLIDAR_MOTOR, OUTPUT); // Lidar Motor
     pinMode(STATUS_LED, OUTPUT);    // Status LED
 
-    IMU.setAccelRange(MPU9250::ACCEL_RANGE_2G);
-    IMU.setGyroRange(MPU9250::GYRO_RANGE_250DPS);
-    IMU.setDlpfBandwidth(MPU9250::DLPF_BANDWIDTH_20HZ);
+    plataforma.stopWheels();
+    plataforma.onEncodersValues = encodersCallback;
 
     connectToWiFi();
-    tcpClient.connectToServer();
+    setupOTA();
 
-    xTaskCreatePinnedToCore(TaskIMU, "IMU Task", 4096, NULL, 1, NULL, 0);
-    xTaskCreatePinnedToCore(TaskLidar, "Lidar Task", 4096, NULL, 1, NULL, 1);
+    tcpClient.connectToServer();
+    tcpClient.onMotorCommand = [](uint8_t cmd) { WheelCommand(cmd); };
+    tcpClient.onIMUCommand = [](uint8_t cmd) { calibrateIMU(cmd); };
+
+    xTaskCreatePinnedToCore(TaskIMU, "IMU Task", 4096, NULL, 1, &taskHandleIMU, 0);
+    xTaskCreatePinnedToCore(TaskLidar, "Lidar Task", 4096, NULL, 1, &taskHandleLidar, 1);
 }
 
 void loop()
 {
-    vTaskDelete(NULL);
+    ArduinoOTA.handle(); // ← permite OTA desde loop
 }
 
 void WheelCommand(uint8_t command)
@@ -200,4 +205,38 @@ void encodersCallback(const int32_t &leftEnc, const int32_t &rightEnc)
     // float rightDistance = rightEnc * perimeter / ppr;
 
     // Serial.printf("📦 Distance left: %f, right: %f\n", leftDistance, rightDistance);
+}
+
+void setupOTA()
+{
+    // ArduinoOTA.setHostname("esp32-ota");
+
+    ArduinoOTA.onStart([]() {
+        Serial.printf("✅ Starting OTA %s update.\n", ArduinoOTA.getCommand() == U_FLASH ? "sketch" : "filesystem");
+    });
+
+    ArduinoOTA.onEnd([]() {
+        Serial.println("✅ OTA Done");
+        ESP.restart();
+    });
+
+    ArduinoOTA.onProgress([](unsigned int progress, unsigned int total) {
+        Serial.printf("📦 OTA Progress: %u%%\n", (progress * 100) / total);
+    });
+
+    ArduinoOTA.onError([](ota_error_t error) {
+        Serial.printf("❌ OTA Error[%u]: ", error);
+        if (error == OTA_AUTH_ERROR)
+            Serial.println("Auth Failed");
+        else if (error == OTA_BEGIN_ERROR)
+            Serial.println("Begin Failed");
+        else if (error == OTA_CONNECT_ERROR)
+            Serial.println("Connect Failed");
+        else if (error == OTA_RECEIVE_ERROR)
+            Serial.println("Receive Failed");
+        else if (error == OTA_END_ERROR)
+            Serial.println("End Failed");
+    });
+
+    ArduinoOTA.begin();
 }

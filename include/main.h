@@ -27,3 +27,4 @@ void setup_wifi();
 void WheelCommand(uint8_t command);
 void calibrateIMU(uint8_t cmd);
 void encodersCallback(const int32_t &leftEnc, const int32_t &rightEnc);
+void setupOTA();

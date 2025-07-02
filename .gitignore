@@ -1,32 +1,21 @@
-# Prerequisites
-*.d
+# VSCode settings
+.vscode/
 
-# Compiled Object files
-*.slo
-*.lo
-*.o
-*.obj
+# PlatformIO hidden config
+.pio/
 
-# Precompiled Headers
-*.gch
-*.pch
+# PlatformIO build output
+.pioenvs/
+.build/
 
-# Compiled Dynamic libraries
-*.so
-*.dylib
-*.dll
+# Backup / temporary files
+*~
+*.swp
+*.bak
+*.tmp
 
-# Fortran module files
-*.mod
-*.smod
+# MacOS
+.DS_Store
 
-# Compiled Static libraries
-*.lai
-*.la
-*.a
-*.lib
-
-# Executables
-*.exe
-*.out
-*.app
+# Windows
+Thumbs.db
